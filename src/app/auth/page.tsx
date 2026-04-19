@@ -28,7 +28,7 @@ export default function AuthPage() {
     setLoading(true); setError('')
     const { error: err } = await supabase.auth.signInWithPassword({ email, password })
     if (err) { setError('이메일 또는 비밀번호를 확인해주세요'); setLoading(false); return }
-    router.push('/room'); router.refresh()
+    window.location.href = '/room'
   }
 
   async function handleSignup() {
@@ -51,7 +51,7 @@ export default function AuthPage() {
     if (data.user) {
       await supabase.from('profiles').insert({ id: data.user.id, room_id: roomId, display_name: name.trim() })
     }
-    router.push('/room'); router.refresh()
+    window.location.href = '/room'
   }
 
   return (
