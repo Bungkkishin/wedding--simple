@@ -27,7 +27,7 @@ export default function ChecklistClient({ initialItems, profile, room }: Props) 
   const [editing, setEditing] = useState<ChecklistItem | null>(null)
   const [editMemo, setEditMemo] = useState('')
   const [editAssignee, setEditAssignee] = useState('')
-  const [filterAssignee, setFilterAssignee] = useState('전체')
+  const [savingId, setSavingId] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
   function copyCode() {
@@ -35,14 +35,11 @@ export default function ChecklistClient({ initialItems, profile, room }: Props) 
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
-  const [savingId, setSavingId] = useState<string | null>(null)
 
-  // D-Day
   const dday = room.wedding_date
     ? differenceInDays(parseISO(room.wedding_date), new Date())
     : null
 
-  // Realtime subscription
   useEffect(() => {
     const ch = supabase.channel('checklist-' + room.id)
       .on('postgres_changes', {
@@ -64,9 +61,10 @@ export default function ChecklistClient({ initialItems, profile, room }: Props) 
   }
 
   const toggleCheck = useCallback(async (item: ChecklistItem) => {
-    setSavingId(item.id)
     const checked = !item.checked
     const now = new Date().toISOString()
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, checked, checked_by: checked ? profile.display_name : null, checked_at: checked ? now : null } : i))
+    setSavingId(item.id)
     await supabase.from('checklist_items').update({
       checked,
       checked_by: checked ? profile.display_name : null,
@@ -94,27 +92,16 @@ export default function ChecklistClient({ initialItems, profile, room }: Props) 
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    router.push('/auth')
-    router.refresh()
+    window.location.href = '/auth'
   }
 
-  // Stats
   const total = items.length
   const done = items.filter(i => i.checked).length
   const pct = total > 0 ? Math.round(done / total * 100) : 0
-
-  // Filtered items
-  const visibleItems = (phase: string) =>
-    items
-      .filter(i => i.phase === phase)
-      .filter(i => filterAssignee === '전체' || i.assignee === filterAssignee)
-
-  // Only show phases that have items in the data
   const usedPhases = PHASES.filter(p => items.some(i => i.phase === p))
 
   return (
     <div className="min-h-screen bg-stone-50">
-      {/* ── Header ── */}
       <header className="bg-white border-b border-stone-100 sticky top-0 z-20">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <div>
@@ -122,7 +109,6 @@ export default function ChecklistClient({ initialItems, profile, room }: Props) 
             <p className="text-xs text-stone-400">{profile.display_name}</p>
           </div>
           <div className="flex items-center gap-3">
-            {/* Progress ring */}
             <div className="relative w-10 h-10">
               <svg viewBox="0 0 40 40" className="w-10 h-10 -rotate-90">
                 <circle cx="20" cy="20" r="16" fill="none" stroke="#f5f5f4" strokeWidth="3.5"/>
@@ -131,13 +117,9 @@ export default function ChecklistClient({ initialItems, profile, room }: Props) 
               </svg>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] font-medium text-rose-500">{pct}%</span>
             </div>
-            <button onClick={handleLogout} className="text-xs text-stone-400 hover:text-stone-600 transition-colors">
-              로그아웃
-            </button>
+            <button onClick={handleLogout} className="text-xs text-stone-400 hover:text-stone-600 transition-colors">로그아웃</button>
           </div>
         </div>
-
-        {/* Invite code */}
         <div className="border-t border-stone-50 bg-stone-50/60">
           <div className="max-w-2xl mx-auto px-4 py-2 flex items-center gap-2">
             <span className="text-xs text-stone-400">초대 코드:</span>
@@ -147,8 +129,6 @@ export default function ChecklistClient({ initialItems, profile, room }: Props) 
             <span className="text-xs text-stone-400">{copied ? '✓ 복사됨!' : '← 파트너에게 공유하세요'}</span>
           </div>
         </div>
-
-      {/* D-Day */}
         {dday !== null && (
           <div className="border-t border-stone-50 bg-rose-50/60">
             <div className="max-w-2xl mx-auto px-4 py-2 flex items-center gap-3">
@@ -164,7 +144,6 @@ export default function ChecklistClient({ initialItems, profile, room }: Props) 
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-4 space-y-3">
-        {/* Summary bar */}
         <div className="bg-white rounded-2xl border border-stone-100 px-4 py-3 flex items-center justify-between gap-4">
           <div className="text-sm text-stone-500">
             <span className="text-stone-800 font-medium">{done}</span> / {total} 완료
@@ -175,41 +154,19 @@ export default function ChecklistClient({ initialItems, profile, room }: Props) 
           <div className="text-sm font-medium text-rose-500">{pct}%</div>
         </div>
 
-        {/* Assignee filter chips */}
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-          {['전체', ...ASSIGNEES].map(a => (
-            <button key={a} onClick={() => setFilterAssignee(a)}
-              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                filterAssignee === a
-                  ? 'bg-stone-800 text-white'
-                  : 'bg-white border border-stone-200 text-stone-500 hover:bg-stone-50'
-              }`}>
-              {a}
-            </button>
-          ))}
-        </div>
-
-        {/* Phase cards */}
         {usedPhases.map(phase => {
-          const phaseItems = visibleItems(phase)
+          const phaseItems = items.filter(i => i.phase === phase)
           if (phaseItems.length === 0) return null
-          const allPhaseItems = items.filter(i => i.phase === phase)
-          const phaseDone = allPhaseItems.filter(i => i.checked).length
-          const phaseTotal = allPhaseItems.length
+          const phaseDone = phaseItems.filter(i => i.checked).length
+          const phaseTotal = phaseItems.length
           const phasePct = phaseTotal > 0 ? Math.round(phaseDone / phaseTotal * 100) : 0
           const allDone = phaseDone === phaseTotal
           const open = expanded.has(phase)
 
           return (
             <div key={phase} className={`bg-white rounded-2xl border overflow-hidden transition-colors ${allDone ? 'border-green-100' : 'border-stone-100'}`}>
-              {/* Phase header */}
-              <button
-                onClick={() => togglePhase(phase)}
-                className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-stone-50/70 transition-colors"
-              >
-                <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${allDone ? 'bg-green-100 text-green-700' : 'bg-stone-100 text-stone-500'}`}>
-                  {phase}
-                </span>
+              <button onClick={() => togglePhase(phase)} className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-stone-50/70 transition-colors">
+                <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${allDone ? 'bg-green-100 text-green-700' : 'bg-stone-100 text-stone-500'}`}>{phase}</span>
                 <div className="flex-1 h-1 bg-stone-100 rounded-full overflow-hidden">
                   <div className="h-full bg-rose-300 rounded-full transition-all" style={{ width: `${phasePct}%` }} />
                 </div>
@@ -217,12 +174,10 @@ export default function ChecklistClient({ initialItems, profile, room }: Props) 
                 <span className="text-stone-300 text-xs">{open ? '▲' : '▽'}</span>
               </button>
 
-              {/* Items */}
               {open && (
                 <div className="border-t border-stone-50 divide-y divide-stone-50">
                   {phaseItems.map(item => (
                     <div key={item.id} className={`flex items-start gap-3 px-4 py-3 group ${item.checked ? 'bg-stone-50/40' : ''}`}>
-                      {/* Checkbox */}
                       <button
                         onClick={() => toggleCheck(item)}
                         disabled={savingId === item.id}
@@ -236,17 +191,11 @@ export default function ChecklistClient({ initialItems, profile, room }: Props) 
                           </svg>
                         )}
                       </button>
-
-                      {/* Text */}
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className={`text-sm ${item.checked ? 'line-through text-stone-400' : 'text-stone-700'}`}>
-                            {item.title}
-                          </span>
+                          <span className={`text-sm ${item.checked ? 'line-through text-stone-400' : 'text-stone-700'}`}>{item.title}</span>
                           {item.assignee && (
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${ASSIGNEE_COLOR[item.assignee] || 'bg-stone-100 text-stone-500'}`}>
-                              {item.assignee}
-                            </span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${ASSIGNEE_COLOR[item.assignee] || 'bg-stone-100 text-stone-500'}`}>{item.assignee}</span>
                           )}
                         </div>
                         {item.memo && <p className="text-xs text-stone-400 mt-0.5 truncate">{item.memo}</p>}
@@ -254,14 +203,7 @@ export default function ChecklistClient({ initialItems, profile, room }: Props) 
                           <p className="text-[10px] text-stone-300 mt-0.5">{item.checked_by} 완료</p>
                         )}
                       </div>
-
-                      {/* Edit btn */}
-                      <button
-                        onClick={() => openEdit(item)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-stone-300 hover:text-stone-500 text-sm px-1"
-                      >
-                        ✎
-                      </button>
+                      <button onClick={() => openEdit(item)} className="opacity-0 group-hover:opacity-100 transition-opacity text-stone-300 hover:text-stone-500 text-sm px-1">✎</button>
                     </div>
                   ))}
                 </div>
@@ -271,44 +213,27 @@ export default function ChecklistClient({ initialItems, profile, room }: Props) 
         })}
       </main>
 
-      {/* ── Edit Modal ── */}
       {editing && (
-        <div
-          className="fixed inset-0 bg-black/20 z-50 flex items-end sm:items-center justify-center p-4"
-          onClick={e => e.target === e.currentTarget && setEditing(null)}
-        >
+        <div className="fixed inset-0 bg-black/20 z-50 flex items-end sm:items-center justify-center p-4"
+          onClick={e => e.target === e.currentTarget && setEditing(null)}>
           <div className="bg-white rounded-3xl w-full max-w-md p-6 space-y-4 fade-up">
             <h3 className="font-serif text-xl text-stone-800">{editing.title}</h3>
-
-            {/* Assignee */}
             <div>
               <p className="text-xs text-stone-400 uppercase tracking-wide mb-2">담당자</p>
               <div className="flex flex-wrap gap-2">
                 <button onClick={() => setEditAssignee('')}
-                  className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${!editAssignee ? 'bg-stone-800 text-white border-stone-800' : 'border-stone-200 text-stone-500'}`}>
-                  없음
-                </button>
+                  className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${!editAssignee ? 'bg-stone-800 text-white border-stone-800' : 'border-stone-200 text-stone-500'}`}>없음</button>
                 {ASSIGNEES.map(a => (
                   <button key={a} onClick={() => setEditAssignee(a)}
-                    className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${editAssignee === a ? 'bg-stone-800 text-white border-stone-800' : 'border-stone-200 text-stone-500'}`}>
-                    {a}
-                  </button>
+                    className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${editAssignee === a ? 'bg-stone-800 text-white border-stone-800' : 'border-stone-200 text-stone-500'}`}>{a}</button>
                 ))}
               </div>
             </div>
-
-            {/* Memo */}
             <div>
               <p className="text-xs text-stone-400 uppercase tracking-wide mb-2">메모</p>
-              <textarea
-                className="w-full border border-stone-200 rounded-xl px-3 py-2.5 text-sm text-stone-700 resize-none focus:border-rose-300 transition-colors"
-                rows={3}
-                placeholder="메모를 남겨보세요..."
-                value={editMemo}
-                onChange={e => setEditMemo(e.target.value)}
-              />
+              <textarea className="w-full border border-stone-200 rounded-xl px-3 py-2.5 text-sm text-stone-700 resize-none focus:border-rose-300 transition-colors"
+                rows={3} placeholder="메모를 남겨보세요..." value={editMemo} onChange={e => setEditMemo(e.target.value)} />
             </div>
-
             <div className="flex gap-2">
               <button onClick={() => setEditing(null)} className="flex-1 py-3 border border-stone-200 rounded-xl text-sm text-stone-500 hover:bg-stone-50">취소</button>
               <button onClick={saveEdit} className="flex-1 py-3 bg-rose-500 text-white rounded-xl text-sm font-medium hover:bg-rose-600 transition-colors">저장</button>
