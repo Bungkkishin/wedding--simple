@@ -1,4 +1,4 @@
-create table if not exists vendors (
+use client (
   id uuid primary key default gen_random_uuid(),
   room_id text references rooms(id) on delete cascade,
   category text not null,
